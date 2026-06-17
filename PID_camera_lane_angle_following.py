@@ -1,6 +1,5 @@
 from picarx import Picarx
 import time
-from time import sleep
 import math
 
 try:
@@ -12,33 +11,36 @@ except ImportError:
 
 from object_avoidance.object_avoidance import ObstacleAvoidance
 from object_avoidance.object_avoidance_config import (
-    NORMAL_SPEED,
-    SLOW_SPEED,
-    AVOID_SPEED,
-    AVOID_LEFT_ANGLE,
-    AVOID_RIGHT_ANGLE,
-    AVOID_TURN_TIME,
-    RETURN_TURN_TIME,
-
-    NORMAL_SPEED,
     CORNER_SPEED,
-    SEARCH_SPEED,
-    REVERSE_SPEED,
-    STEERING_LIMIT,
-    KP,
-    KI,
+    DERIVATIVE_SMOOTHING,
+    ERROR_SMOOTHING,
+    EXPECTED_LANE_WIDTH,
     KD,
+    KI,
+    KP,
+    LANE_MIN_CONFIDENCE,
+    LOW_CONFIDENCE_SPEED,
+    MASK_MORPH_KERNEL,
+    MAX_LANE_WIDTH,
+    MAX_STEERING_STEP,
+    MIN_LANE_WIDTH,
+    MIN_WHITE_PIXELS,
+    NORMAL_SPEED,
     OFFSET_WEIGHT,
-    ANGLE_WEIGHT,
+    PID_INTEGRAL_LIMIT,
+    REVERSE_SPEED,
     ROI_TOP_RATIO,
     SCANLINES,
-    WHITE_THRESHOLD,
-    MIN_WHITE_PIXELS,
-    MIN_LANE_WIDTH,
-    MAX_LANE_WIDTH,
-    EXPECTED_LANE_WIDTH,
+    SEARCH_SPEED,
+    SLOW_SPEED,
+    STEERING_LIMIT,
     STEERING_SMOOTHING,
-    ERROR_SMOOTHING,
+    WHITE_HLS_LIGHTNESS_MIN,
+    WHITE_HLS_SATURATION_MAX,
+    WHITE_HSV_SATURATION_MAX,
+    WHITE_HSV_VALUE_MIN,
+    WHITE_THRESHOLD,
+    ANGLE_WEIGHT,
     CORNER_ERROR_THRESHOLD,
     CORNER_ANGLE_THRESHOLD_DEG,
     DEBUG_MODE,
@@ -59,6 +61,8 @@ SETTINGS = {
     "KP": KP,
     "KI": KI,
     "KD": KD,
+    "PID_INTEGRAL_LIMIT": PID_INTEGRAL_LIMIT,
+    "DERIVATIVE_SMOOTHING": DERIVATIVE_SMOOTHING,
 
     # Lane control
     "OFFSET_WEIGHT": OFFSET_WEIGHT,
@@ -68,18 +72,26 @@ SETTINGS = {
     "ROI_TOP_RATIO": ROI_TOP_RATIO,
     "SCANLINES": SCANLINES,
     "WHITE_THRESHOLD": WHITE_THRESHOLD,
+    "WHITE_HLS_LIGHTNESS_MIN": WHITE_HLS_LIGHTNESS_MIN,
+    "WHITE_HLS_SATURATION_MAX": WHITE_HLS_SATURATION_MAX,
+    "WHITE_HSV_VALUE_MIN": WHITE_HSV_VALUE_MIN,
+    "WHITE_HSV_SATURATION_MAX": WHITE_HSV_SATURATION_MAX,
+    "MASK_MORPH_KERNEL": MASK_MORPH_KERNEL,
     "MIN_WHITE_PIXELS": MIN_WHITE_PIXELS,
     "MIN_LANE_WIDTH": MIN_LANE_WIDTH,
     "MAX_LANE_WIDTH": MAX_LANE_WIDTH,
     "EXPECTED_LANE_WIDTH": EXPECTED_LANE_WIDTH,
+    "LANE_MIN_CONFIDENCE": LANE_MIN_CONFIDENCE,
 
     # Filtering
     "STEERING_SMOOTHING": STEERING_SMOOTHING,
     "ERROR_SMOOTHING": ERROR_SMOOTHING,
+    "MAX_STEERING_STEP": MAX_STEERING_STEP,
 
     # Corners
     "CORNER_ERROR_THRESHOLD": CORNER_ERROR_THRESHOLD,
     "CORNER_ANGLE_THRESHOLD_DEG": CORNER_ANGLE_THRESHOLD_DEG,
+    "LOW_CONFIDENCE_SPEED": LOW_CONFIDENCE_SPEED,
 
     # Debug
     "DEBUG_MODE": DEBUG_MODE,
@@ -87,12 +99,15 @@ SETTINGS = {
 
 
 class PIDController:
-    def __init__(self, kp, ki, kd):
+    def __init__(self, kp, ki, kd, integral_limit, derivative_smoothing):
         self.kp = kp
         self.ki = ki
         self.kd = kd
+        self.integral_limit = integral_limit
+        self.derivative_smoothing = derivative_smoothing
         self.integral = 0.0
         self.prev_error = 0.0
+        self.prev_derivative = 0.0
         self.prev_time = time.time()
 
     def compute(self, error):
@@ -102,7 +117,10 @@ class PIDController:
             dt = 0.001
 
         self.integral += error * dt
+        self.integral = max(-self.integral_limit, min(self.integral_limit, self.integral))
         derivative = (error - self.prev_error) / dt
+        alpha = self.derivative_smoothing
+        derivative = (alpha * derivative) + ((1.0 - alpha) * self.prev_derivative)
 
         output = (
             self.kp * error
@@ -111,8 +129,15 @@ class PIDController:
         )
 
         self.prev_error = error
+        self.prev_derivative = derivative
         self.prev_time = current_time
         return output
+
+    def reset(self):
+        self.integral = 0.0
+        self.prev_error = 0.0
+        self.prev_derivative = 0.0
+        self.prev_time = time.time()
 
 
 class LaneDetector:
@@ -132,26 +157,42 @@ class LaneDetector:
         self.last_angle_deg = 0.0
         self.last_direction = 0
         self.last_lane_width = self.cfg["EXPECTED_LANE_WIDTH"]
+        self.min_points_for_reliable_fit = max(3, len(self.cfg["SCANLINES"]) - 1)
 
     def threshold_white(self, frame):
         if cv2 is None or np is None:
             raise RuntimeError("OpenCV and NumPy are required for camera lane detection.")
 
         if len(frame.shape) == 3:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            blurred = cv2.GaussianBlur(frame, (5, 5), 0)
+            hls = cv2.cvtColor(blurred, cv2.COLOR_BGR2HLS)
+            hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+
+            hls_mask = cv2.inRange(
+                hls,
+                np.array([0, self.cfg["WHITE_HLS_LIGHTNESS_MIN"], 0], dtype=np.uint8),
+                np.array([255, 255, self.cfg["WHITE_HLS_SATURATION_MAX"]], dtype=np.uint8),
+            )
+            hsv_mask = cv2.inRange(
+                hsv,
+                np.array([0, 0, self.cfg["WHITE_HSV_VALUE_MIN"]], dtype=np.uint8),
+                np.array([255, self.cfg["WHITE_HSV_SATURATION_MAX"], 255], dtype=np.uint8),
+            )
+            binary = cv2.bitwise_or(hls_mask, hsv_mask)
         else:
             gray = frame
+            gray = cv2.GaussianBlur(gray, (5, 5), 0)
+            _, binary = cv2.threshold(
+                gray,
+                self.cfg["WHITE_THRESHOLD"],
+                255,
+                cv2.THRESH_BINARY,
+            )
 
-        # Smooth small noise before thresholding
-        gray = cv2.GaussianBlur(gray, (5, 5), 0)
-
-        # White lane borders become 255, black lane becomes 0
-        _, binary = cv2.threshold(
-            gray,
-            self.cfg["WHITE_THRESHOLD"],
-            255,
-            cv2.THRESH_BINARY,
-        )
+        kernel_size = self.cfg["MASK_MORPH_KERNEL"]
+        kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
         return binary
 
     def find_border_positions_on_row(self, row):
@@ -191,6 +232,17 @@ class LaneDetector:
 
         return left_x, right_x
 
+    def compute_confidence(self, center_points, fitted_x):
+        point_confidence = len(center_points) / max(1, len(self.cfg["SCANLINES"]))
+
+        if len(center_points) < self.min_points_for_reliable_fit:
+            return min(point_confidence, 0.35)
+
+        xs = np.array([point[0] for point in center_points], dtype=np.float32)
+        residual = float(np.mean(np.abs(xs - fitted_x)))
+        residual_confidence = max(0.0, 1.0 - (residual / 25.0))
+        return max(0.0, min(1.0, (0.65 * point_confidence) + (0.35 * residual_confidence)))
+
     def detect(self, frame):
         binary = self.threshold_white(frame)
         height, width = binary.shape[:2]
@@ -229,23 +281,19 @@ class LaneDetector:
                 "offset_error": self.last_error,
                 "angle_deg": self.last_angle_deg,
                 "center_points": center_points,
+                "confidence": 0.0,
             }
 
-        # Bottom point gives immediate lateral offset
-        bottom_center_x, _ = center_points[-1]
-        offset_error = image_center - bottom_center_x
+        ys = np.array([point[1] for point in center_points], dtype=np.float32)
+        xs = np.array([point[0] for point in center_points], dtype=np.float32)
+        slope, intercept = np.polyfit(ys, xs, 1)
 
-        # Use first and last center points to estimate lane direction angle
-        top_center_x, top_y = center_points[0]
-        bottom_center_x, bottom_y = center_points[-1]
-
-        dx = bottom_center_x - top_center_x
-        dy = bottom_y - top_y
-        if abs(dy) < 1:
-            dy = 1
+        bottom_y = float(height - 1)
+        predicted_bottom_center_x = (slope * bottom_y) + intercept
+        offset_error = image_center - predicted_bottom_center_x
 
         # Angle relative to straight-ahead vertical direction
-        angle_rad = math.atan2(dx, dy)
+        angle_rad = math.atan(slope)
         angle_deg = math.degrees(angle_rad)
 
         # Combine offset and angle into one steering error
@@ -267,12 +315,26 @@ class LaneDetector:
         elif combined_error < -2:
             self.last_direction = -1
 
+        fitted_x = (slope * ys) + intercept
+        confidence = self.compute_confidence(center_points, fitted_x)
+
+        if len(center_points) < self.min_points_for_reliable_fit and confidence < self.cfg["LANE_MIN_CONFIDENCE"]:
+            return {
+                "detected": False,
+                "error": self.last_error,
+                "offset_error": offset_error,
+                "angle_deg": angle_deg,
+                "center_points": center_points,
+                "confidence": confidence,
+            }
+
         return {
             "detected": True,
             "error": combined_error,
             "offset_error": offset_error,
             "angle_deg": angle_deg,
             "center_points": center_points,
+            "confidence": confidence,
         }
 
 
@@ -280,7 +342,13 @@ class AutonomousCar:
     def __init__(self, settings):
         self.cfg = settings
         self.hardware = Picarx()
-        self.pid = PIDController(self.cfg["KP"], self.cfg["KI"], self.cfg["KD"])
+        self.pid = PIDController(
+            self.cfg["KP"],
+            self.cfg["KI"],
+            self.cfg["KD"],
+            self.cfg["PID_INTEGRAL_LIMIT"],
+            self.cfg["DERIVATIVE_SMOOTHING"],
+        )
         self.lane_detector = LaneDetector(self.cfg)
         self.avoidance = ObstacleAvoidance()
         self.last_steering_angle = 0.0
@@ -299,33 +367,45 @@ class AutonomousCar:
         self.hardware.backward(abs(self.cfg["SPEED_REVERSE"]))
 
     def update_steering(self, error):
-        raw_angle = self.pid.compute(error)
-        raw_angle = self.clamp_steering(raw_angle)
+        target_angle = self.clamp_steering(self.pid.compute(error))
 
         # Smooth servo movement so the steering does not jerk
         alpha = self.cfg["STEERING_SMOOTHING"]
-        smooth_angle = (alpha * raw_angle) + ((1.0 - alpha) * self.last_steering_angle)
-        safe_angle = self.clamp_steering(smooth_angle)
+        smooth_angle = (alpha * target_angle) + ((1.0 - alpha) * self.last_steering_angle)
+
+        max_step = self.cfg["MAX_STEERING_STEP"]
+        lower_bound = self.last_steering_angle - max_step
+        upper_bound = self.last_steering_angle + max_step
+        limited_angle = max(lower_bound, min(upper_bound, smooth_angle))
+        safe_angle = self.clamp_steering(limited_angle)
 
         self.hardware.set_dir_servo_angle(safe_angle)
         self.last_steering_angle = safe_angle
 
         return safe_angle
 
-    def choose_speed(self, lane_result):
+    def choose_speed(self, lane_result, obstacle_speed_limit=None):
         if not lane_result["detected"]:
-            return self.cfg["SPEED_SEARCH"]
+            speed = self.cfg["SPEED_SEARCH"]
+        else:
+            error = abs(lane_result["error"])
+            angle = abs(lane_result["angle_deg"])
+            confidence = lane_result.get("confidence", 1.0)
 
-        error = abs(lane_result["error"])
-        angle = abs(lane_result["angle_deg"])
+            if confidence < self.cfg["LANE_MIN_CONFIDENCE"]:
+                speed = self.cfg["LOW_CONFIDENCE_SPEED"]
+            elif (
+                error > self.cfg["CORNER_ERROR_THRESHOLD"]
+                or angle > self.cfg["CORNER_ANGLE_THRESHOLD_DEG"]
+            ):
+                speed = self.cfg["SPEED_CORNER"]
+            else:
+                speed = self.cfg["SPEED_FORWARD"]
 
-        if (
-            error > self.cfg["CORNER_ERROR_THRESHOLD"]
-            or angle > self.cfg["CORNER_ANGLE_THRESHOLD_DEG"]
-        ):
-            return self.cfg["SPEED_CORNER"]
+        if obstacle_speed_limit is not None:
+            speed = min(speed, obstacle_speed_limit)
 
-        return self.cfg["SPEED_FORWARD"]
+        return speed
 
     def search_for_lane(self):
         direction = self.lane_detector.last_direction
@@ -339,43 +419,31 @@ class AutonomousCar:
         if self.cfg["DEBUG_MODE"]:
             print(f"[WARNING] Lane lost. Searching with angle {search_angle:.1f}")
 
-    def handle_obstacle(self):
+    def handle_obstacle(self, now):
         distance = self.hardware.ultrasonic.read()
-        action = self.avoidance.get_action(distance)
+        control = self.avoidance.get_control(distance, now)
 
         if self.cfg["DEBUG_MODE"]:
-            print(f"Distance: {distance} cm | Action: {action}")
+            print(
+                f"[OBSTACLE] raw={distance} cm | "
+                f"filtered={control['distance']} | "
+                f"action={control['action']}"
+            )
 
-        if action == "avoid_left":
-            self.hardware.set_dir_servo_angle(AVOID_LEFT_ANGLE)
-            self.hardware.forward(AVOID_SPEED)
-            sleep(AVOID_TURN_TIME)
-
-            self.hardware.set_dir_servo_angle(AVOID_RIGHT_ANGLE)
-            self.hardware.forward(AVOID_SPEED)
-            sleep(AVOID_TURN_TIME)
-            return True
-
-        elif action == "return_to_lane":
-            self.hardware.set_dir_servo_angle(AVOID_RIGHT_ANGLE)
-            self.hardware.forward(AVOID_SPEED)
-            sleep(RETURN_TURN_TIME)
-
-            self.hardware.set_dir_servo_angle(0)
-            return True
-
-        elif action == "slow":
-            self.hardware.forward(SLOW_SPEED)
-            return False
-
-        elif action == "stop":
+        if control["override"]:
+            self.pid.reset()
+            self.last_steering_angle = 0.0
+            steering_angle = control["steering_angle"]
+            if steering_angle is not None:
+                self.hardware.set_dir_servo_angle(steering_angle)
+            if control["speed"] and control["speed"] > 0:
+                self.hardware.forward(control["speed"])
+            else:
+                self.stop()
+        elif control["action"] == "stop":
             self.stop()
-            return True
 
-        elif action == "clear":
-            return False
-
-        return False
+        return control
 
     def stop(self):
         self.hardware.stop()
@@ -418,9 +486,9 @@ def main():
 
     try:
         while True:
-            obstacle_handled = car.handle_obstacle()
-            if obstacle_handled:
-                time.sleep(0.1)
+            obstacle_control = car.handle_obstacle(time.time())
+            if obstacle_control["override"]:
+                time.sleep(0.05)
                 continue
 
             frame = get_camera_frame(camera)
@@ -433,11 +501,12 @@ def main():
             lane_result = car.lane_detector.detect(frame)
 
             if not lane_result["detected"]:
+                car.pid.reset()
                 car.search_for_lane()
                 time.sleep(0.05)
                 continue
 
-            speed = car.choose_speed(lane_result)
+            speed = car.choose_speed(lane_result, obstacle_control["speed"])
             steering_angle = car.update_steering(lane_result["error"])
             car.drive_forward(speed)
 
@@ -446,6 +515,7 @@ def main():
                     f"[LANE] error={lane_result['error']:.2f} | "
                     f"offset={lane_result['offset_error']:.2f} | "
                     f"angle={lane_result['angle_deg']:.2f} deg | "
+                    f"confidence={lane_result['confidence']:.2f} | "
                     f"steer={steering_angle:.2f} | speed={speed}"
                 )
 

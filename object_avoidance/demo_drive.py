@@ -1,8 +1,9 @@
 from time import sleep
+import time
 from picarx import Picarx
 
 from object_avoidance.object_avoidance import ObstacleAvoidance
-from object_avoidance.object_avoidance_config import NORMAL_SPEED, SLOW_SPEED, AVOID_SPEED, AVOID_LEFT_ANGLE, AVOID_RIGHT_ANGLE, AVOID_TURN_TIME,RETURN_TURN_TIME
+from object_avoidance.object_avoidance_config import NORMAL_SPEED
 
 
 px = Picarx()
@@ -18,35 +19,25 @@ def lane_keep():
 try:
     while True:
         distance = px.ultrasonic.read()
-        action = avoidance.get_action(distance)
+        control = avoidance.get_control(distance, time.time())
 
-        print(f"Distance: {distance} cm"| "{action}")
+        print(
+            f"Distance: {distance} cm | "
+            f"Filtered: {control['distance']} | "
+            f"Action: {control['action']}"
+        )
 
-        if action == "avoid_left":
-            px.set_dir_servo_angle(AVOID_LEFT_ANGLE)
-            px.forward(AVOID_SPEED)
-            sleep(AVOID_TURN_TIME)
-
-            px.set_dir_servo_angle(AVOID_RIGHT_ANGLE)
-            px.forward(AVOID_SPEED)
-            sleep(AVOID_TURN_TIME)
-
-        elif action == "return_to_lane":
-            px.set_dir_servo_angle(AVOID_RIGHT_ANGLE)
-            px.forward(AVOID_SPEED)
-            sleep(RETURN_TURN_TIME)
-
-            px.set_dir_servo_angle(0)
-
-        elif action == "slow":
+        if control["override"]:
+            if control["steering_angle"] is not None:
+                px.set_dir_servo_angle(control["steering_angle"])
+            if control["speed"] and control["speed"] > 0:
+                px.forward(control["speed"])
+            else:
+                px.stop()
+        elif control["action"] in {"slow", "brake", "clear", "sensor_uncertain"}:
             lane_keep()
-            px.forward(SLOW_SPEED)
-
-        elif action == "clear":
-            lane_keep()
-
-        elif action == "stop":
-            px.stop()
+            if control["speed"] and control["speed"] < NORMAL_SPEED:
+                px.forward(control["speed"])
 
         sleep(0.1)
 
