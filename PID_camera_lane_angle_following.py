@@ -3,11 +3,6 @@ import time
 import math
 
 try:
-    from vilib import Vilib
-except ImportError:
-    Vilib = None
-
-try:
     import cv2
     import numpy as np
 except ImportError:
@@ -20,7 +15,6 @@ except ImportError:
     Picamera2 = None
 
 from object_avoidance.object_avoidance import ObstacleAvoidance
-from vilib import Vilib
 from object_avoidance.object_avoidance_config import (
     CORNER_SPEED,
     DERIVATIVE_SMOOTHING,
@@ -598,21 +592,12 @@ def get_camera_frame(camera):
 
 
 def main():
-    vilib_started = False
-
     try:
         car = AutonomousCar(SETTINGS)
         camera = CameraReader(camera_index=0)
     except RuntimeError as exc:
         print(f"[ERROR] Startup failed: {exc}")
         return
-
-    if Vilib is not None and camera.backend != "picamera2":
-        try:
-            Vilib.camera_start()
-            vilib_started = True
-        except Exception:
-            vilib_started = False
 
     print(f"[INFO] System ready. Camera lane angle following active. backend={camera.backend}")
     if car.sign_detector.available:
@@ -676,8 +661,6 @@ def main():
 
     finally:
         car.stop()
-        if vilib_started:
-            Vilib.camera_stop()
         camera.release()
         print("[INFO] Hardware shutdown safe.")
 
