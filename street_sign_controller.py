@@ -25,6 +25,7 @@ class StreetSignDetectorAdapter:
         candidate_modules = [
             "street_sign_detector",
             "street_sign.street_sign_detector",
+            "signRecognitionPi",
         ]
 
         for module_name in candidate_modules:
@@ -67,6 +68,12 @@ class StreetSignDetectorAdapter:
             return None
 
         normalized = result.strip().lower()
+        if normalized == "none":
+            return None
+
+        if normalized.endswith("_far"):
+            normalized = normalized[:-4]
+
         if normalized in ALLOWED_SIGNS:
             return normalized
 

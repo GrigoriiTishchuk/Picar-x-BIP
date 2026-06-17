@@ -33,6 +33,8 @@ Priority order:
   All tunable config values.
 - [street_sign_controller.py]
   Optional sign-detector adapter plus sign action state machine.
+- [signRecognitionPi.py]
+  Sign recognition module for `left`, `right`, and `stop`.
 - [PSEUDOCODE.md]
   Algorithmic walkthrough.
 - [object_avoidance/test_obstacle_avoidance.py]
@@ -47,6 +49,10 @@ You need:
 - `opencv-python` / `cv2`
 - `numpy`
 - a working camera available to OpenCV
+
+If you want the included sign-recognition module, you also need:
+- `picamera2`
+- `pyserial`
 
 ## Running
 
@@ -99,6 +105,31 @@ Valid outputs are:
 - `"stop"`
 - `None`
 
+This repo now includes [signRecognitionPi.py], and the adapter will automatically try to load it.
+
+That module exposes:
+
+```python
+def detect_sign(frame)
+```
+
+and may return:
+- `"left"`
+- `"right"`
+- `"stop"`
+- `"left_far"`
+- `"right_far"`
+- `"stop_far"`
+- `"none"`
+
+The adapter normalizes those values for the main car controller:
+- `"_far"` suffixes are stripped
+- `"none"` becomes `None`
+
+Important behavior:
+- when imported by the main driving script, `signRecognitionPi.py` no longer starts its own camera/serial loop
+- when run directly with `python3 signRecognitionPi.py`, it still runs as a standalone detector process
+
 ## Current Tuning Assumption
 
 The latest config is tuned as a cautious first pass for:
@@ -138,4 +169,4 @@ Obstacle handling:
 - The lane model is still a simple line fit, not a full curve model.
 - Obstacle recovery is intentionally conservative after close readings.
 - Hardware startup still depends on the `Picarx` stack and camera working correctly on the target machine.
-
+- The included sign detector still requires `picamera2` and `serial` imports to be available on the target machine.
