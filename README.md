@@ -5,7 +5,7 @@ Autonomous driving prototype for a `Picarx` robot car with:
 - ultrasonic obstacle handling
 - optional street-sign actions for `left`, `right`, and `stop`
 
-The current main entry point is [PID_camera_lane_angle_following.py](/Users/m2hycon/Downloads/Picar-x-BIP/PID_camera_lane_angle_following.py:1).
+The current main entry point is [PID_camera_lane_angle_following.py]
 
 ## What It Does
 
@@ -25,17 +25,17 @@ Priority order:
 
 ## Repo Layout
 
-- [PID_camera_lane_angle_following.py](/Users/m2hycon/Downloads/Picar-x-BIP/PID_camera_lane_angle_following.py:1)
+- [PID_camera_lane_angle_following.py]
   Main driving script.
-- [object_avoidance/object_avoidance.py](/Users/m2hycon/Downloads/Picar-x-BIP/object_avoidance/object_avoidance.py:1)
+- [object_avoidance/object_avoidance.py]
   Ultrasonic obstacle state machine.
-- [object_avoidance/object_avoidance_config.py](/Users/m2hycon/Downloads/Picar-x-BIP/object_avoidance/object_avoidance_config.py:1)
+- [object_avoidance/object_avoidance_config.py]
   All tunable config values.
-- [street_sign_controller.py](/Users/m2hycon/Downloads/Picar-x-BIP/street_sign_controller.py:1)
+- [street_sign_controller.py]
   Optional sign-detector adapter plus sign action state machine.
-- [PSEUDOCODE.md](/Users/m2hycon/Downloads/Picar-x-BIP/PSEUDOCODE.md:1)
+- [PSEUDOCODE.md]
   Algorithmic walkthrough.
-- [object_avoidance/test_obstacle_avoidance.py](/Users/m2hycon/Downloads/Picar-x-BIP/object_avoidance/test_obstacle_avoidance.py:1)
+- [object_avoidance/test_obstacle_avoidance.py]
   Lightweight obstacle behavior test.
 
 ## Requirements
@@ -72,7 +72,7 @@ The script currently opens:
 CameraReader(camera_index=0)
 ```
 
-That means OpenCV will try to use camera device `0`. If the wrong camera opens, change the index in [PID_camera_lane_angle_following.py](/Users/m2hycon/Downloads/Picar-x-BIP/PID_camera_lane_angle_following.py:542).
+That means OpenCV will try to use camera device `0`. If the wrong camera opens, change the index in [PID_camera_lane_angle_following.py]
 
 ## Optional Street Sign Detector
 
@@ -80,7 +80,7 @@ Street-sign handling is optional.
 
 If no detector module exists, the car still runs and simply ignores signs.
 
-The adapter in [street_sign_controller.py](/Users/m2hycon/Downloads/Picar-x-BIP/street_sign_controller.py:7) supports either:
+The adapter in [street_sign_controller.py] supports either:
 
 ```python
 def detect_sign(frame) -> str | None
