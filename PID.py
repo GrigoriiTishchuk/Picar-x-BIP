@@ -16,7 +16,8 @@ SETTINGS = {
     "DEBUG_MODE": True,         # Set to False to stop terminal prints
     "LINE_REF": 10000,         # Threshold for white line detection
     "TURN_SPEED": 30,          # Speed used during the 90-degree turn
-    "TURN_DURATION": 1.5       # Time (seconds) it takes to complete a 90-deg turn
+    "TURN_DURATION": 1.5,       # Time (seconds) it takes to complete a 90-deg turn
+    "STOP_DURATION": 3.0        # Time (seconds) to wait at a STOP sign before proceeding
 }
 
 # ==========================================
@@ -85,13 +86,11 @@ class AutonomousCar:
     def execute_90_degree_turn(self, direction):
         if self.cfg["DEBUG_MODE"]:
             print(f"[ACTION] Initiating 90-degree turn to the: {direction.upper()}")
-        
         # Turn the wheels
         if direction == "left":
             self.hardware.set_dir_servo_angle(-35)
         elif direction == "right":
             self.hardware.set_dir_servo_angle(35)
-            
         # Drive the arc
         self.hardware.forward(self.cfg["TURN_SPEED"])
         time.sleep(self.cfg["TURN_DURATION"])
@@ -99,23 +98,33 @@ class AutonomousCar:
         # Straighten out
         self.hardware.set_dir_servo_angle(0)
 
+    def execute_stop_sign(self):
+        """Halts the car completely for the calibrated stop duration."""
+        if self.cfg["DEBUG_MODE"]:
+            print("[ACTION] STOP sign triggered. Halting at intersection...")
+        self.hardware.stop()
+        time.sleep(self.cfg["STOP_DURATION"])
+        if self.cfg["DEBUG_MODE"]:
+            print("[ACTION] Stop duration complete. Proceeding straight.")
+        # Note: We don't need to explicitly drive forward here, because the 
+        # main loop will automatically resume `drive_forward()` on its next cycle!
+
     def check_ground_sensors(self):
         """Fetches data and updates navigation actions using separate file logic."""
         gm_val_list = self.hardware.get_grayscale_data()
-        
-        # Pass variables to our separate file
         action, clear_memory = evaluate_intersection(
             gm_val_list, 
             self.remembered_sign, 
             self.cfg["LINE_REF"],
             self.cfg["DEBUG_MODE"]
         )
-        if action:
-            self.execute_90_degree_turn(action)    
+        # Route the action to the correct physical maneuver
+        if action in ["left", "right"]:
+            self.execute_90_degree_turn(action)
+        elif action == "stop":
+            self.execute_stop_sign()
         if clear_memory:
             self.remembered_sign = None
-
-
 
     def stop(self):
         self.hardware.stop()
@@ -140,14 +149,6 @@ def get_ultrasonic_data():
     # Simulated data for testing purposes
     # return 15 
     pass
-
-def get_grey_scale_data():
-    """
-    Placeholder for receiving data from the Grey Scale Team.
-    Insert socket/network reading code here.
-    """
-    gm_val_list = px.get_grayscale_data()
-    
 
 def main():
     # Initialize the car using the centralized settings
