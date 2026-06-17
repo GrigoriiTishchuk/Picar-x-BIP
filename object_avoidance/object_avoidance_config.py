@@ -10,3 +10,47 @@ AVOID_RIGHT_ANGLE = 30
 
 AVOID_TURN_TIME = 0.6
 RETURN_TURN_TIME = 0.5
+
+# Speed settings
+NORMAL_SPEED = 30
+CORNER_SPEED = 20
+SEARCH_SPEED = 15
+REVERSE_SPEED = -20
+
+# Steering
+STEERING_LIMIT = 45
+
+# PID tuning
+KP = 0.45
+KI = 0.0
+KD = 0.08
+
+# Lane control weights
+OFFSET_WEIGHT = 1.0
+ANGLE_WEIGHT = 1.8
+
+# Camera lane detection
+ROI_TOP_RATIO = 0.55
+
+# Relative scanline positions inside ROI
+SCANLINES = [0.20, 0.40, 0.60, 0.80]
+
+WHITE_THRESHOLD = 180
+MIN_WHITE_PIXELS = 5
+
+MIN_LANE_WIDTH = 40
+MAX_LANE_WIDTH = 500
+
+# If only one border is visible
+EXPECTED_LANE_WIDTH = 220
+
+# Smoothing
+STEERING_SMOOTHING = 0.35
+ERROR_SMOOTHING = 0.25
+
+# Corner handling
+CORNER_ERROR_THRESHOLD = 18
+CORNER_ANGLE_THRESHOLD_DEG = 10
+
+# Debug
+DEBUG_MODE = True
