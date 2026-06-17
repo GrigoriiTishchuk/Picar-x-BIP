@@ -14,6 +14,8 @@ SAVE_PATH = f"/home/admin/Pictures/{DATE_TIME}.jpg"
 def take_photo(path):
     px.set_cam_pan_angle(5)
     px.set_cam_tilt_angle(-20)
+
+    sleep(10)
     
     camera = Picamera2()
     config = camera.create_still_configuration(
