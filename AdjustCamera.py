@@ -29,13 +29,13 @@ try:
         cmd = input("Enter command and press Enter: ").strip().lower()
         
         if cmd == 'w':
-            tilt_angle += 5
+            tilt_angle += 2
         elif cmd == 's':
-            tilt_angle -= 5
+            tilt_angle -= 2
         elif cmd == 'a':
-            pan_angle += 5
+            pan_angle += 2
         elif cmd == 'd':
-            pan_angle -= 5
+            pan_angle -= 2
         elif cmd == 'q':
             break
         else:
