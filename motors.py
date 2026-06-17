@@ -3,39 +3,73 @@ import time
 
 px = Picarx()
 
-# --- MOTOR TUNING VALUES ---
-# Change these values independently to test and balance the wheels
+# Initial starting speeds
 LEFT_SPEED = 30
-RIGHT_SPEED = -25
+RIGHT_SPEED = 30
+is_driving = False
 
-print("--- Independent Motor Calibration Test ---")
-print(" w -> Drive Forward (Using custom left/right speeds)")
-print(" s -> Stop")
+def update_motors():
+    """Applies power to the motors only if the car is in 'driving' mode."""
+    if is_driving:
+        px.set_motor_speed(1, LEFT_SPEED)
+        # We apply the negative sign here to fix the physical mirror effect of the right motor
+        px.set_motor_speed(2, -RIGHT_SPEED) 
+    else:
+        px.stop()
+
+def print_status():
+    status = "DRIVING" if is_driving else "STOPPED"
+    print(f"[{status}] Left Power: {LEFT_SPEED} | Right Power: {RIGHT_SPEED}")
+
+print("--- Live Motor Calibration ---")
+print(" w -> START Driving")
+print(" s -> STOP Driving")
+print(" e -> Left Motor +2")
+print(" d -> Left Motor -2")
+print(" r -> Right Motor +2")
+print(" f -> Right Motor -2")
 print(" q -> Quit")
-print("------------------------------------------")
+print("-" * 30)
 
 try:
-    # 1. Force the front wheels to be perfectly straight before testing
+    # Force the front wheels to be perfectly straight
     px.set_dir_servo_angle(0)
-    time.sleep(0.5) 
+    time.sleep(0.5)
+    
+    print_status()
 
     while True:
-        cmd = input("Enter command (w/s/q) and press Enter: ").strip().lower()
+        cmd = input("Command: ").strip().lower()
         
         if cmd == 'w':
-            print(f"[ACTION] Left Motor Power: {LEFT_SPEED} | Right Motor Power: {RIGHT_SPEED}")
-            
-            # Send individual power values to each motor
-            # Note: Motor 1 is usually Left, Motor 2 is Right. 
-            # If your car spins backwards or incorrectly, just swap the 1 and 2.
-            px.set_motor_speed(1, LEFT_SPEED)
-            px.set_motor_speed(2, RIGHT_SPEED)
+            is_driving = True
+            update_motors()
+            print_status()
             
         elif cmd == 's':
-            print("[ACTION] Motors stopped.")
-            # Stop each motor individually by setting speed to 0
-            px.set_motor_speed(1, 0)
-            px.set_motor_speed(2, 0)
+            is_driving = False
+            update_motors()
+            print_status()
+            
+        elif cmd == 'e':
+            LEFT_SPEED += 2
+            update_motors()
+            print_status()
+            
+        elif cmd == 'd':
+            LEFT_SPEED -= 2
+            update_motors()
+            print_status()
+            
+        elif cmd == 'r':
+            RIGHT_SPEED += 2
+            update_motors()
+            print_status()
+            
+        elif cmd == 'f':
+            RIGHT_SPEED -= 2
+            update_motors()
+            print_status()
             
         elif cmd == 'q':
             break
@@ -46,6 +80,6 @@ try:
 except KeyboardInterrupt:
     pass
 finally:
-    # Always ensure motors stop when the script is closed
+    # Safe shutdown
     px.stop()
-    print("\n[INFO] Test finished safely.")
+    print("\n[INFO] Calibration test finished. Motors stopped.")
