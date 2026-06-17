@@ -10,6 +10,7 @@ except ImportError:
     np = None
 
 from object_avoidance.object_avoidance import ObstacleAvoidance
+from vilib import Vilib
 from object_avoidance.object_avoidance_config import (
     CORNER_SPEED,
     DERIVATIVE_SMOOTHING,
@@ -539,6 +540,7 @@ def get_camera_frame(camera):
 def main():
     try:
         car = AutonomousCar(SETTINGS)
+        Vilib.camera_start()
         camera = CameraReader(camera_index=0)
     except RuntimeError as exc:
         print(f"[ERROR] Startup failed: {exc}")
@@ -606,6 +608,7 @@ def main():
 
     finally:
         car.stop()
+        Vilib.camera_stop()
         camera.release()
         print("[INFO] Hardware shutdown safe.")
 
