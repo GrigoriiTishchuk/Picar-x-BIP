@@ -1,5 +1,7 @@
 from picarx import Picarx
 import time
+from navigation_rule import evaluate_intersection
+
 
 # ==========================================
 # 1. CENTRAL CONFIGURATION (Change parameters ONLY here)
@@ -11,7 +13,11 @@ SETTINGS = {
     "KP": 0.25,                # Proportional gain
     "KI": 0.0,                 # Integral gain
     "KD": 0.1,                 # Derivative gain
-    "DEBUG_MODE": True         # Set to False to stop terminal prints
+    "DEBUG_MODE": True,         # Set to False to stop terminal prints
+    "LINE_REF": 10000,         # Threshold for white line detection
+    "TURN_SPEED": 30,          # Speed used during the 90-degree turn
+    "TURN_DURATION": 2.5,       # Time (seconds) it takes to complete a 90-deg turn
+    "STOP_DURATION": 3.0        # Time (seconds) to wait at a STOP sign before proceeding
 }
 
 # ==========================================
@@ -32,18 +38,14 @@ class PIDController:
         
         if dt <= 0:
             dt = 0.001 # Prevent division by zero
-
         # Proportional term
         p_out = self.kp * error
-        
         # Derivative term
         derivative = (error - self.prev_error) / dt
         d_out = self.kd * derivative
-        
         # Update memory for the next loop
         self.prev_error = error
         self.prev_time = current_time
-
         return p_out + d_out
 
 # ==========================================
@@ -76,6 +78,49 @@ class AutonomousCar:
         
         if self.cfg["DEBUG_MODE"]:
             print(f"[DEBUG] Error: {error} | Raw Angle: {raw_angle:.2f} | Safe Angle: {safe_angle:.2f}")
+    
+    def execute_90_degree_turn(self, direction):
+        if self.cfg["DEBUG_MODE"]:
+            print(f"[ACTION] Initiating 90-degree turn to the: {direction.upper()}")
+        # Turn the wheels
+        if direction == "left":
+            self.hardware.set_dir_servo_angle(-35)
+        elif direction == "right":
+            self.hardware.set_dir_servo_angle(35)
+        # Drive the arc
+        self.hardware.forward(self.cfg["TURN_SPEED"])
+        time.sleep(self.cfg["TURN_DURATION"])
+        
+        # Straighten out
+        self.hardware.set_dir_servo_angle(0)
+
+    def execute_stop_sign(self):
+        """Halts the car completely for the calibrated stop duration."""
+        if self.cfg["DEBUG_MODE"]:
+            print("[ACTION] STOP sign triggered. Halting at intersection...")
+        self.hardware.stop()
+        time.sleep(self.cfg["STOP_DURATION"])
+        if self.cfg["DEBUG_MODE"]:
+            print("[ACTION] Stop duration complete. Proceeding straight.")
+        # Note: We don't need to explicitly drive forward here, because the 
+        # main loop will automatically resume `drive_forward()` on its next cycle!
+
+    def check_ground_sensors(self):
+        """Fetches data and updates navigation actions using separate file logic."""
+        gm_val_list = self.hardware.get_grayscale_data()
+        action, clear_memory = evaluate_intersection(
+            gm_val_list, 
+            self.remembered_sign, 
+            self.cfg["LINE_REF"],
+            self.cfg["DEBUG_MODE"]
+        )
+        # Route the action to the correct physical maneuver
+        if action in ["left", "right"]:
+            self.execute_90_degree_turn(action)
+        elif action == "stop":
+            self.execute_stop_sign()
+        if clear_memory:
+            self.remembered_sign = None
 
     def stop(self):
         self.hardware.stop()
@@ -83,32 +128,11 @@ class AutonomousCar:
 # ==========================================
 # 4. MAIN EXECUTION LOOP (The Logic Flow)
 # ==========================================
-def get_camera_data():
-    """
-    Placeholder for receiving data from the Vision Team.
-    Insert socket/network reading code here.
-    """
-    # Simulated data for testing purposes
-    # return 120 
-    pass
+def get_camera_line_error():
+    return 0 
 
-def get_ultrasonic_data():
-    """
-    Placeholder for receiving data from the Ultrasonic Team.
-    Insert socket/network reading code here.
-    """
-    # Simulated data for testing purposes
-    # return 15 
-    pass
-
-def get_grey_scale_data():
-    """
-    Placeholder for receiving data from the Grey Scale Team.
-    Insert socket/network reading code here.
-    """
-    # Simulated data for testing purposes
-    # return 0.75 
-    pass
+def check_camera_for_signs():
+    return None
 
 def main():
     # Initialize the car using the centralized settings
@@ -117,22 +141,25 @@ def main():
     
     try:
         while True:
-            data = get_camera_data()
+            #  Check for signs via camera
+            detected_sign = check_camera_for_signs()
+            if detected_sign:
+                car.remembered_sign = detected_sign
+            #  Check for intersections (Uses our external file)
+            car.check_ground_sensors()
+            #  Handle normal line following
+            line_error = get_camera_line_error()
 
-            # Handle edge case: Track is lost
-            if data == "LOST" or data is None:
-                if SETTINGS["DEBUG_MODE"]: 
-                    print("[WARNING] Line lost! Reversing...")
+            if line_error == "LOST" or line_error is None:
                 car.reverse()
                 time.sleep(0.1)
                 continue
             
-            # Normal driving operation
-            if isinstance(data, (int, float)):
+            if isinstance(line_error, (int, float)):
                 car.drive_forward()
-                car.update_steering(data)
+                car.update_steering(line_error)
                 
-            time.sleep(0.05) # Prevent CPU overload
+            time.sleep(0.02)
             
     except KeyboardInterrupt:
         print("\n[INFO] Manual stop triggered.")
