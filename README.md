@@ -131,24 +131,6 @@ Obstacle handling:
 - `BRAKE_DISTANCE`
 - `SLOW_DISTANCE`
 
-## Quick Validation
-
-Syntax check:
-
-```bash
-PYTHONPYCACHEPREFIX=.pycache python3 -m py_compile \
-  PID_camera_lane_angle_following.py \
-  street_sign_controller.py \
-  object_avoidance/object_avoidance.py \
-  object_avoidance/object_avoidance_config.py
-```
-
-Obstacle behavior test:
-
-```bash
-PYTHONPYCACHEPREFIX=.pycache python3 -m object_avoidance.test_obstacle_avoidance
-```
-
 ## Known Limitations
 
 - Final behavior still depends heavily on track lighting and camera placement.
@@ -157,11 +139,3 @@ PYTHONPYCACHEPREFIX=.pycache python3 -m object_avoidance.test_obstacle_avoidance
 - Obstacle recovery is intentionally conservative after close readings.
 - Hardware startup still depends on the `Picarx` stack and camera working correctly on the target machine.
 
-## Suggested First Test Procedure
-
-1. Put the car on the track with wheels off the ground first.
-2. Start the script and confirm camera/hardware startup messages.
-3. Check steering direction manually before letting it drive.
-4. Run at the current cautious config first.
-5. Tune lane thresholds before tuning PID.
-6. Tune sign delay and turn time only after lane following is stable.
