@@ -8,8 +8,8 @@ px = Picarx()
 pan_angle = 0
 tilt_angle = 0
 
-px.set_camera_pan_angle(pan_angle)
-px.set_camera_tilt_angle(tilt_angle)
+px.set_cam_pan_angle(pan_angle)
+px.set_cam_tilt_angle(tilt_angle)
 
 # Start the web camera stream
 Vilib.camera_start()
@@ -46,8 +46,8 @@ try:
         tilt_angle = max(-35, min(35, tilt_angle)) # Tilt has a tighter restriction
         
         # Send the calculated angles to the motors
-        px.set_camera_pan_angle(pan_angle)
-        px.set_camera_tilt_angle(tilt_angle)
+        px.set_cam_pan_angle(pan_angle)
+        px.set_cam_tilt_angle(tilt_angle)
         
         # Print the current status in the terminal
         print(f"Current Angle -> Pan (Left/Right): {pan_angle}° | Tilt (Up/Down): {tilt_angle}°")
@@ -56,7 +56,7 @@ except KeyboardInterrupt:
     pass
 finally:
     # Reset camera to center and safely close the stream
-    px.set_camera_pan_angle(0)
-    px.set_camera_tilt_angle(0)
+    px.set_cam_pan_angle(0)
+    px.set_cam_tilt_angle(0)
     Vilib.camera_close()
     print("\n[INFO] Program closed safely.")
