@@ -1,5 +1,7 @@
 from picarx import Picarx
 import time
+from navigation_rule import evaluate_intersection
+
 
 # ==========================================
 # 1. CENTRAL CONFIGURATION (Change parameters ONLY here)
@@ -11,7 +13,10 @@ SETTINGS = {
     "KP": 0.25,                # Proportional gain
     "KI": 0.0,                 # Integral gain
     "KD": 0.1,                 # Derivative gain
-    "DEBUG_MODE": True         # Set to False to stop terminal prints
+    "DEBUG_MODE": True,         # Set to False to stop terminal prints
+    "LINE_REF": 10000,         # Threshold for white line detection
+    "TURN_SPEED": 30,          # Speed used during the 90-degree turn
+    "TURN_DURATION": 1.5       # Time (seconds) it takes to complete a 90-deg turn
 }
 
 # ==========================================
@@ -76,6 +81,41 @@ class AutonomousCar:
         
         if self.cfg["DEBUG_MODE"]:
             print(f"[DEBUG] Error: {error} | Raw Angle: {raw_angle:.2f} | Safe Angle: {safe_angle:.2f}")
+    
+    def execute_90_degree_turn(self, direction):
+        if self.cfg["DEBUG_MODE"]:
+            print(f"[ACTION] Initiating 90-degree turn to the: {direction.upper()}")
+        
+        # Turn the wheels
+        if direction == "left":
+            self.hardware.set_dir_servo_angle(-35)
+        elif direction == "right":
+            self.hardware.set_dir_servo_angle(35)
+            
+        # Drive the arc
+        self.hardware.forward(self.cfg["TURN_SPEED"])
+        time.sleep(self.cfg["TURN_DURATION"])
+        
+        # Straighten out
+        self.hardware.set_dir_servo_angle(0)
+
+    def check_ground_sensors(self):
+        """Fetches data and updates navigation actions using separate file logic."""
+        gm_val_list = self.hardware.get_grayscale_data()
+        
+        # Pass variables to our separate file
+        action, clear_memory = evaluate_intersection(
+            gm_val_list, 
+            self.remembered_sign, 
+            self.cfg["LINE_REF"],
+            self.cfg["DEBUG_MODE"]
+        )
+        if action:
+            self.execute_90_degree_turn(action)    
+        if clear_memory:
+            self.remembered_sign = None
+
+
 
     def stop(self):
         self.hardware.stop()
@@ -106,9 +146,8 @@ def get_grey_scale_data():
     Placeholder for receiving data from the Grey Scale Team.
     Insert socket/network reading code here.
     """
-    # Simulated data for testing purposes
-    # return 0.75 
-    pass
+    gm_val_list = px.get_grayscale_data()
+    
 
 def main():
     # Initialize the car using the centralized settings
