@@ -17,6 +17,7 @@ class StreetSignDetectorAdapter:
         self.enabled = enabled
         self.available = False
         self._callable = None
+        self.load_error = None
 
         if not enabled:
             return
@@ -31,6 +32,9 @@ class StreetSignDetectorAdapter:
                 module = importlib.import_module(module_name)
             except ImportError:
                 continue
+            except Exception as exc:
+                self.load_error = f"{module_name} import failed: {exc}"
+                continue
 
             detect_fn = getattr(module, "detect_sign", None)
             if callable(detect_fn):
@@ -40,7 +44,11 @@ class StreetSignDetectorAdapter:
 
             detector_cls = getattr(module, "StreetSignDetector", None)
             if detector_cls is not None:
-                detector = detector_cls()
+                try:
+                    detector = detector_cls()
+                except Exception as exc:
+                    self.load_error = f"{module_name}.StreetSignDetector failed: {exc}"
+                    continue
                 detect_method = getattr(detector, "detect", None)
                 if callable(detect_method):
                     self._callable = detect_method
@@ -51,7 +59,10 @@ class StreetSignDetectorAdapter:
         if not self.available or self._callable is None:
             return None
 
-        result = self._callable(frame)
+        try:
+            result = self._callable(frame)
+        except Exception:
+            return None
         if not isinstance(result, str):
             return None
 
@@ -70,7 +81,7 @@ class StreetSignController:
         self.pending_sign = None
         self.pending_started_at = 0.0
         self.pending_confirmations = 0
-        self.last_seen_sign = None
+        self.pending_ready = False
         self.last_completed_at = -1e9
 
     def _in_cooldown(self, now):
@@ -84,7 +95,7 @@ class StreetSignController:
         self.pending_sign = None
         self.pending_started_at = 0.0
         self.pending_confirmations = 0
-        self.last_seen_sign = None
+        self.pending_ready = False
 
     def _build_response(self, action, override, speed=None, steering_angle=None):
         return {
@@ -152,32 +163,41 @@ class StreetSignController:
                     steering_angle=0,
                 )
 
-        if detected_sign is None or self._in_cooldown(now):
-            if self.pending_sign is not None and (now - self.pending_started_at) > self.cfg["SIGN_ACTION_DELAY"]:
-                self._clear_pending()
+        if self._in_cooldown(now):
+            self._clear_pending()
             return self._build_response(action="clear", override=False)
 
-        if detected_sign != self.pending_sign:
+        if detected_sign is not None and detected_sign not in ALLOWED_SIGNS:
+            detected_sign = None
+
+        if detected_sign is not None and detected_sign != self.pending_sign:
             self.pending_sign = detected_sign
             self.pending_started_at = now
             self.pending_confirmations = 1
-            self.last_seen_sign = detected_sign
+            self.pending_ready = False
             return self._build_response(action=f"pending_{detected_sign}", override=False)
 
-        self.pending_confirmations += 1
-        self.last_seen_sign = detected_sign
+        if detected_sign is not None and detected_sign == self.pending_sign:
+            self.pending_confirmations += 1
+            if self.pending_confirmations >= self.cfg["SIGN_CONFIRM_FRAMES"]:
+                self.pending_ready = True
 
-        if self.pending_confirmations < self.cfg["SIGN_CONFIRM_FRAMES"]:
-            return self._build_response(action=f"pending_{detected_sign}", override=False)
+        if self.pending_sign is None:
+            return self._build_response(action="clear", override=False)
+
+        if not self.pending_ready:
+            return self._build_response(action=f"pending_{self.pending_sign}", override=False)
 
         if now - self.pending_started_at < self.cfg["SIGN_ACTION_DELAY"]:
-            return self._build_response(action=f"pending_{detected_sign}", override=False)
+            return self._build_response(action=f"pending_{self.pending_sign}", override=False)
 
-        if detected_sign == "left":
+        latched_sign = self.pending_sign
+
+        if latched_sign == "left":
             self._transition("executing_left", now)
             return self._execution_response("left")
 
-        if detected_sign == "right":
+        if latched_sign == "right":
             self._transition("executing_right", now)
             return self._execution_response("right")
 

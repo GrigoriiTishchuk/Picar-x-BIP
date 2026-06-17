@@ -1,0 +1,167 @@
+# Picar-x-BIP
+
+Autonomous driving prototype for a `Picarx` robot car with:
+- camera-based lane following
+- ultrasonic obstacle handling
+- optional street-sign actions for `left`, `right`, and `stop`
+
+The current main entry point is [PID_camera_lane_angle_following.py](/Users/m2hycon/Downloads/Picar-x-BIP/PID_camera_lane_angle_following.py:1).
+
+## What It Does
+
+The car runs a continuous control loop that:
+- reads the ultrasonic sensor and applies obstacle safety logic first
+- optionally reacts to detected street signs
+- reads a camera frame
+- detects the lane from white borders on a dark track
+- computes a steering error from lane offset and lane angle
+- uses PID to steer smoothly
+- chooses speed based on turn sharpness and lane confidence
+
+Priority order:
+- obstacle override
+- active street-sign maneuver
+- normal lane following
+
+## Repo Layout
+
+- [PID_camera_lane_angle_following.py](/Users/m2hycon/Downloads/Picar-x-BIP/PID_camera_lane_angle_following.py:1)
+  Main driving script.
+- [object_avoidance/object_avoidance.py](/Users/m2hycon/Downloads/Picar-x-BIP/object_avoidance/object_avoidance.py:1)
+  Ultrasonic obstacle state machine.
+- [object_avoidance/object_avoidance_config.py](/Users/m2hycon/Downloads/Picar-x-BIP/object_avoidance/object_avoidance_config.py:1)
+  All tunable config values.
+- [street_sign_controller.py](/Users/m2hycon/Downloads/Picar-x-BIP/street_sign_controller.py:1)
+  Optional sign-detector adapter plus sign action state machine.
+- [PSEUDOCODE.md](/Users/m2hycon/Downloads/Picar-x-BIP/PSEUDOCODE.md:1)
+  Algorithmic walkthrough.
+- [object_avoidance/test_obstacle_avoidance.py](/Users/m2hycon/Downloads/Picar-x-BIP/object_avoidance/test_obstacle_avoidance.py:1)
+  Lightweight obstacle behavior test.
+
+## Requirements
+
+You need:
+- a `Picarx` car with working motor/servo/ultrasonic access
+- Python 3
+- `picarx`
+- `opencv-python` / `cv2`
+- `numpy`
+- a working camera available to OpenCV
+
+## Running
+
+Start the car with:
+
+```bash
+python3 PID_camera_lane_angle_following.py
+```
+
+Stop it with:
+
+```bash
+Ctrl+C
+```
+
+On shutdown the script stops the car and releases the camera.
+
+## Camera Notes
+
+The script currently opens:
+
+```python
+CameraReader(camera_index=0)
+```
+
+That means OpenCV will try to use camera device `0`. If the wrong camera opens, change the index in [PID_camera_lane_angle_following.py](/Users/m2hycon/Downloads/Picar-x-BIP/PID_camera_lane_angle_following.py:542).
+
+## Optional Street Sign Detector
+
+Street-sign handling is optional.
+
+If no detector module exists, the car still runs and simply ignores signs.
+
+The adapter in [street_sign_controller.py](/Users/m2hycon/Downloads/Picar-x-BIP/street_sign_controller.py:7) supports either:
+
+```python
+def detect_sign(frame) -> str | None
+```
+
+or:
+
+```python
+class StreetSignDetector:
+    def detect(self, frame) -> str | None
+```
+
+Valid outputs are:
+- `"left"`
+- `"right"`
+- `"stop"`
+- `None`
+
+## Current Tuning Assumption
+
+The latest config is tuned as a cautious first pass for:
+- a dark track mat
+- bright white lane borders
+- narrow indoor course geometry
+- sharp corners
+- side-mounted street signs near the thick boundary lines
+
+You will still need real-world calibration.
+
+## Most Important Config Values
+
+Lane and steering:
+- `WHITE_HLS_LIGHTNESS_MIN`
+- `WHITE_HSV_VALUE_MIN`
+- `EXPECTED_LANE_WIDTH`
+- `KP`
+- `KD`
+- `CORNER_ERROR_THRESHOLD`
+- `CORNER_ANGLE_THRESHOLD_DEG`
+
+Signs:
+- `SIGN_ACTION_DELAY`
+- `SIGN_TURN_TIME`
+- `SIGN_TURN_SPEED`
+
+Obstacle handling:
+- `STOP_DISTANCE`
+- `BRAKE_DISTANCE`
+- `SLOW_DISTANCE`
+
+## Quick Validation
+
+Syntax check:
+
+```bash
+PYTHONPYCACHEPREFIX=.pycache python3 -m py_compile \
+  PID_camera_lane_angle_following.py \
+  street_sign_controller.py \
+  object_avoidance/object_avoidance.py \
+  object_avoidance/object_avoidance_config.py
+```
+
+Obstacle behavior test:
+
+```bash
+PYTHONPYCACHEPREFIX=.pycache python3 -m object_avoidance.test_obstacle_avoidance
+```
+
+## Known Limitations
+
+- Final behavior still depends heavily on track lighting and camera placement.
+- Sign timing is approximate until tested on the real course.
+- The lane model is still a simple line fit, not a full curve model.
+- Obstacle recovery is intentionally conservative after close readings.
+- Hardware startup still depends on the `Picarx` stack and camera working correctly on the target machine.
+
+## Suggested First Test Procedure
+
+1. Put the car on the track with wheels off the ground first.
+2. Start the script and confirm camera/hardware startup messages.
+3. Check steering direction manually before letting it drive.
+4. Run at the current cautious config first.
+5. Tune lane thresholds before tuning PID.
+6. Tune sign delay and turn time only after lane following is stable.

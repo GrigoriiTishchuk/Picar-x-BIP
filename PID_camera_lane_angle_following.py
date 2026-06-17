@@ -264,6 +264,15 @@ class LaneDetector:
         residual_confidence = max(0.0, 1.0 - (residual / 25.0))
         return max(0.0, min(1.0, (0.65 * point_confidence) + (0.35 * residual_confidence)))
 
+    def _update_memory(self, error, angle_deg):
+        self.last_error = error
+        self.last_angle_deg = angle_deg
+
+        if error > 2:
+            self.last_direction = 1
+        elif error < -2:
+            self.last_direction = -1
+
     def detect(self, frame):
         binary = self.threshold_white(frame)
         height, width = binary.shape[:2]
@@ -328,14 +337,6 @@ class LaneDetector:
         alpha = self.cfg["ERROR_SMOOTHING"]
         combined_error = (alpha * combined_error) + ((1.0 - alpha) * self.last_error)
 
-        self.last_error = combined_error
-        self.last_angle_deg = angle_deg
-
-        if combined_error > 2:
-            self.last_direction = 1
-        elif combined_error < -2:
-            self.last_direction = -1
-
         fitted_x = (slope * ys) + intercept
         confidence = self.compute_confidence(center_points, fitted_x)
 
@@ -348,6 +349,8 @@ class LaneDetector:
                 "center_points": center_points,
                 "confidence": confidence,
             }
+
+        self._update_memory(combined_error, angle_deg)
 
         return {
             "detected": True,
@@ -362,7 +365,13 @@ class LaneDetector:
 class AutonomousCar:
     def __init__(self, settings):
         self.cfg = settings
-        self.hardware = Picarx()
+        try:
+            self.hardware = Picarx()
+        except Exception as exc:
+            raise RuntimeError(
+                "Could not initialize Picarx hardware. "
+                "Check that the car is connected, powered, and the picarx package is installed correctly."
+            ) from exc
         self.pid = PIDController(
             self.cfg["KP"],
             self.cfg["KI"],
@@ -505,9 +514,13 @@ class CameraReader:
     def __init__(self, camera_index=0):
         if cv2 is None:
             raise RuntimeError("OpenCV is required for camera input.")
+        self.camera_index = camera_index
         self.cap = cv2.VideoCapture(camera_index)
         if not self.cap.isOpened():
-            raise RuntimeError("Could not open camera.")
+            raise RuntimeError(
+                f"Could not open camera at index {camera_index}. "
+                "Check that the camera is connected and that the correct OpenCV camera index is being used."
+            )
 
     def get_frame(self):
         ok, frame = self.cap.read()
@@ -524,12 +537,18 @@ def get_camera_frame(camera):
 
 
 def main():
-    car = AutonomousCar(SETTINGS)
-    camera = CameraReader(camera_index=0)
+    try:
+        car = AutonomousCar(SETTINGS)
+        camera = CameraReader(camera_index=0)
+    except RuntimeError as exc:
+        print(f"[ERROR] Startup failed: {exc}")
+        return
 
     print("[INFO] System ready. Camera lane angle following active.")
     if car.sign_detector.available:
         print("[INFO] Street sign detector loaded.")
+    elif car.sign_detector.load_error:
+        print(f"[WARNING] Street sign detector unavailable: {car.sign_detector.load_error}")
     else:
         print("[INFO] Street sign detector not found. Sign handling is idle.")
 
