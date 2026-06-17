@@ -92,6 +92,24 @@ def get_camera_data():
     # return 120 
     pass
 
+def get_ultrasonic_data():
+    """
+    Placeholder for receiving data from the Ultrasonic Team.
+    Insert socket/network reading code here.
+    """
+    # Simulated data for testing purposes
+    # return 15 
+    pass
+
+def get_grey_scale_data():
+    """
+    Placeholder for receiving data from the Grey Scale Team.
+    Insert socket/network reading code here.
+    """
+    # Simulated data for testing purposes
+    # return 0.75 
+    pass
+
 def main():
     # Initialize the car using the centralized settings
     car = AutonomousCar(SETTINGS)
