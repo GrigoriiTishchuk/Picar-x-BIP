@@ -6,7 +6,7 @@ px = Picarx()
 # --- MOTOR TUNING VALUES ---
 # Change these values independently to test and balance the wheels
 LEFT_SPEED = 30
-RIGHT_SPEED = 30
+RIGHT_SPEED = -30
 
 print("--- Independent Motor Calibration Test ---")
 print(" w -> Drive Forward (Using custom left/right speeds)")
