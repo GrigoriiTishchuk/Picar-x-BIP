@@ -1,7 +1,11 @@
 from picarx import Picarx
-from vilib import Vilib
 import time
 import math
+
+try:
+    from vilib import Vilib
+except ImportError:
+    Vilib = None
 
 try:
     import cv2
@@ -9,6 +13,11 @@ try:
 except ImportError:
     cv2 = None
     np = None
+
+try:
+    from picamera2 import Picamera2
+except ImportError:
+    Picamera2 = None
 
 from object_avoidance.object_avoidance import ObstacleAvoidance
 from vilib import Vilib
@@ -507,31 +516,81 @@ class AutonomousCar:
 
 class CameraReader:
     """
-    Basic OpenCV camera reader.
+    Camera reader that prefers Picamera2 on Raspberry Pi CSI cameras.
 
-    If your team sends frames over network instead of using a local USB/CSI camera,
-    replace get_frame() with your socket/frame receiver.
+    Falls back to OpenCV capture for USB cameras or non-Pi environments.
     """
 
-    def __init__(self, camera_index=0):
-        if cv2 is None:
-            raise RuntimeError("OpenCV is required for camera input.")
+    def __init__(self, camera_index=0, frame_size=(640, 480)):
         self.camera_index = camera_index
-        self.cap = cv2.VideoCapture(camera_index)
-        if not self.cap.isOpened():
-            raise RuntimeError(
-                f"Could not open camera at index {camera_index}. "
-                "Check that the camera is connected and that the correct OpenCV camera index is being used."
+        self.frame_size = frame_size
+        self.backend = None
+        self.cap = None
+        self.picam2 = None
+        self._initialize()
+
+    def _initialize(self):
+        errors = []
+
+        if Picamera2 is not None:
+            try:
+                self.picam2 = Picamera2()
+                self.picam2.configure(
+                    self.picam2.create_preview_configuration(
+                        main={"format": "BGR888", "size": self.frame_size}
+                    )
+                )
+                self.picam2.start()
+                time.sleep(0.2)
+                self.backend = "picamera2"
+                return
+            except Exception as exc:
+                errors.append(f"Picamera2 failed: {exc}")
+                self.picam2 = None
+
+        if cv2 is not None:
+            self.cap = cv2.VideoCapture(self.camera_index)
+            if self.cap.isOpened():
+                width, height = self.frame_size
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                self.backend = "opencv"
+                return
+
+            errors.append(
+                f"OpenCV could not open camera index {self.camera_index}"
             )
 
+        raise RuntimeError(
+            "Could not initialize a camera. "
+            + " | ".join(errors)
+            + ". Check that the camera is connected and not already in use."
+        )
+
     def get_frame(self):
+        if self.backend == "picamera2" and self.picam2 is not None:
+            try:
+                return self.picam2.capture_array()
+            except Exception:
+                return None
+
+        if self.cap is None:
+            return None
+
         ok, frame = self.cap.read()
         if not ok:
             return None
         return frame
 
     def release(self):
-        self.cap.release()
+        if self.picam2 is not None:
+            self.picam2.stop()
+            self.picam2 = None
+
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
 
 
 def get_camera_frame(camera):
@@ -539,15 +598,23 @@ def get_camera_frame(camera):
 
 
 def main():
+    vilib_started = False
+
     try:
         car = AutonomousCar(SETTINGS)
-        Vilib.camera_start()
         camera = CameraReader(camera_index=0)
     except RuntimeError as exc:
         print(f"[ERROR] Startup failed: {exc}")
         return
 
-    print("[INFO] System ready. Camera lane angle following active.")
+    if Vilib is not None and camera.backend != "picamera2":
+        try:
+            Vilib.camera_start()
+            vilib_started = True
+        except Exception:
+            vilib_started = False
+
+    print(f"[INFO] System ready. Camera lane angle following active. backend={camera.backend}")
     if car.sign_detector.available:
         print("[INFO] Street sign detector loaded.")
     elif car.sign_detector.load_error:
@@ -609,7 +676,8 @@ def main():
 
     finally:
         car.stop()
-        Vilib.camera_stop()
+        if vilib_started:
+            Vilib.camera_stop()
         camera.release()
         print("[INFO] Hardware shutdown safe.")
 
