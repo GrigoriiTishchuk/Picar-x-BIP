@@ -12,7 +12,7 @@ try:
 
     # 2. Drive forward using the basic, built-in function
     # You can adjust the 30 to any speed you need (0 to 100)
-    px.forward(20)
+    px.forward(10)
     
     # 3. Keep the script alive so the car keeps moving
     while True:
