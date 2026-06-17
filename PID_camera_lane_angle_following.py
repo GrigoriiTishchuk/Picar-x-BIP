@@ -32,6 +32,15 @@ from object_avoidance.object_avoidance_config import (
     ROI_TOP_RATIO,
     SCANLINES,
     SEARCH_SPEED,
+    SIGN_ACTION_DELAY,
+    SIGN_CONFIRM_FRAMES,
+    SIGN_COOLDOWN,
+    SIGN_DETECTION_ENABLED,
+    SIGN_LEFT_ANGLE,
+    SIGN_RIGHT_ANGLE,
+    SIGN_STOP_HOLD_TIME,
+    SIGN_TURN_SPEED,
+    SIGN_TURN_TIME,
     SLOW_SPEED,
     STEERING_LIMIT,
     STEERING_SMOOTHING,
@@ -45,6 +54,7 @@ from object_avoidance.object_avoidance_config import (
     CORNER_ANGLE_THRESHOLD_DEG,
     DEBUG_MODE,
 )
+from street_sign_controller import StreetSignController, StreetSignDetectorAdapter
 
 
 SETTINGS = {
@@ -95,6 +105,17 @@ SETTINGS = {
 
     # Debug
     "DEBUG_MODE": DEBUG_MODE,
+
+    # Street signs
+    "SIGN_DETECTION_ENABLED": SIGN_DETECTION_ENABLED,
+    "SIGN_ACTION_DELAY": SIGN_ACTION_DELAY,
+    "SIGN_CONFIRM_FRAMES": SIGN_CONFIRM_FRAMES,
+    "SIGN_COOLDOWN": SIGN_COOLDOWN,
+    "SIGN_TURN_SPEED": SIGN_TURN_SPEED,
+    "SIGN_LEFT_ANGLE": SIGN_LEFT_ANGLE,
+    "SIGN_RIGHT_ANGLE": SIGN_RIGHT_ANGLE,
+    "SIGN_TURN_TIME": SIGN_TURN_TIME,
+    "SIGN_STOP_HOLD_TIME": SIGN_STOP_HOLD_TIME,
 }
 
 
@@ -351,6 +372,8 @@ class AutonomousCar:
         )
         self.lane_detector = LaneDetector(self.cfg)
         self.avoidance = ObstacleAvoidance()
+        self.sign_controller = StreetSignController(self.cfg)
+        self.sign_detector = StreetSignDetectorAdapter(self.cfg["SIGN_DETECTION_ENABLED"])
         self.last_steering_angle = 0.0
 
     def clamp_steering(self, angle):
@@ -445,6 +468,28 @@ class AutonomousCar:
 
         return control
 
+    def detect_street_sign(self, frame):
+        return self.sign_detector.detect(frame)
+
+    def handle_street_sign(self, now, detected_sign=None):
+        control = self.sign_controller.update(now, detected_sign)
+
+        if self.cfg["DEBUG_MODE"] and detected_sign is not None:
+            print(f"[SIGN] detected={detected_sign} | action={control['action']}")
+
+        if control["override"]:
+            self.pid.reset()
+            self.last_steering_angle = 0.0
+            steering_angle = control["steering_angle"]
+            if steering_angle is not None:
+                self.hardware.set_dir_servo_angle(steering_angle)
+            if control["speed"] and control["speed"] > 0:
+                self.hardware.forward(control["speed"])
+            else:
+                self.stop()
+
+        return control
+
     def stop(self):
         self.hardware.stop()
 
@@ -483,11 +528,21 @@ def main():
     camera = CameraReader(camera_index=0)
 
     print("[INFO] System ready. Camera lane angle following active.")
+    if car.sign_detector.available:
+        print("[INFO] Street sign detector loaded.")
+    else:
+        print("[INFO] Street sign detector not found. Sign handling is idle.")
 
     try:
         while True:
-            obstacle_control = car.handle_obstacle(time.time())
+            now = time.time()
+            obstacle_control = car.handle_obstacle(now)
             if obstacle_control["override"]:
+                time.sleep(0.05)
+                continue
+
+            sign_control = car.handle_street_sign(now)
+            if sign_control["override"]:
                 time.sleep(0.05)
                 continue
 
@@ -496,6 +551,12 @@ def main():
                 print("[WARNING] No camera frame received.")
                 car.stop()
                 time.sleep(0.1)
+                continue
+
+            detected_sign = car.detect_street_sign(frame)
+            sign_control = car.handle_street_sign(now, detected_sign)
+            if sign_control["override"]:
+                time.sleep(0.05)
                 continue
 
             lane_result = car.lane_detector.detect(frame)
