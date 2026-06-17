@@ -25,6 +25,7 @@ from object_avoidance.object_avoidance_config import (
     KP,
     LANE_MIN_CONFIDENCE,
     LOW_CONFIDENCE_SPEED,
+    LANE_LOSS_GRACE_TIME,
     MASK_MORPH_KERNEL,
     MAX_LANE_WIDTH,
     MAX_STEERING_STEP,
@@ -97,6 +98,7 @@ SETTINGS = {
     "MAX_LANE_WIDTH": MAX_LANE_WIDTH,
     "EXPECTED_LANE_WIDTH": EXPECTED_LANE_WIDTH,
     "LANE_MIN_CONFIDENCE": LANE_MIN_CONFIDENCE,
+    "LANE_LOSS_GRACE_TIME": LANE_LOSS_GRACE_TIME,
 
     # Filtering
     "STEERING_SMOOTHING": STEERING_SMOOTHING,
@@ -116,6 +118,7 @@ SETTINGS = {
     "SIGN_ACTION_DELAY": SIGN_ACTION_DELAY,
     "SIGN_CONFIRM_FRAMES": SIGN_CONFIRM_FRAMES,
     "SIGN_COOLDOWN": SIGN_COOLDOWN,
+    "SIGN_PENDING_TIMEOUT": SIGN_PENDING_TIMEOUT,
     "SIGN_TURN_SPEED": SIGN_TURN_SPEED,
     "SIGN_LEFT_ANGLE": SIGN_LEFT_ANGLE,
     "SIGN_RIGHT_ANGLE": SIGN_RIGHT_ANGLE,
@@ -389,6 +392,7 @@ class AutonomousCar:
         self.sign_controller = StreetSignController(self.cfg)
         self.sign_detector = StreetSignDetectorAdapter(self.cfg["SIGN_DETECTION_ENABLED"])
         self.last_steering_angle = 0.0
+        self.lane_lost_since = None
 
     def clamp_steering(self, angle):
         limit = self.cfg["STEERING_LIMIT"]
@@ -455,6 +459,27 @@ class AutonomousCar:
 
         if self.cfg["DEBUG_MODE"]:
             print(f"[WARNING] Lane lost. Searching with angle {search_angle:.1f}")
+
+    def handle_lane_loss(self, now):
+        if self.lane_lost_since is None:
+            self.lane_lost_since = now
+
+        lane_loss_age = now - self.lane_lost_since
+        if lane_loss_age < self.cfg["LANE_LOSS_GRACE_TIME"]:
+            self.hardware.set_dir_servo_angle(self.last_steering_angle)
+            self.hardware.forward(self.cfg["LOW_CONFIDENCE_SPEED"])
+            if self.cfg["DEBUG_MODE"]:
+                print(
+                    f"[WARNING] Lane temporarily lost. "
+                    f"Holding course for {lane_loss_age:.2f}s"
+                )
+            return
+
+        self.pid.reset()
+        self.search_for_lane()
+
+    def clear_lane_loss(self):
+        self.lane_lost_since = None
 
     def handle_obstacle(self, now):
         distance = self.hardware.ultrasonic.read()
@@ -636,10 +661,11 @@ def main():
             lane_result = car.lane_detector.detect(frame)
 
             if not lane_result["detected"]:
-                car.pid.reset()
-                car.search_for_lane()
+                car.handle_lane_loss(now)
                 time.sleep(0.05)
                 continue
+
+            car.clear_lane_loss()
 
             speed = car.choose_speed(lane_result, obstacle_control["speed"])
             steering_angle = car.update_steering(lane_result["error"])

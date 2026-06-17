@@ -87,6 +87,7 @@ class StreetSignController:
         self.state_started_at = 0.0
         self.pending_sign = None
         self.pending_started_at = 0.0
+        self.pending_last_seen_at = 0.0
         self.pending_confirmations = 0
         self.pending_ready = False
         self.last_completed_at = -1e9
@@ -101,6 +102,7 @@ class StreetSignController:
     def _clear_pending(self):
         self.pending_sign = None
         self.pending_started_at = 0.0
+        self.pending_last_seen_at = 0.0
         self.pending_confirmations = 0
         self.pending_ready = False
 
@@ -177,14 +179,24 @@ class StreetSignController:
         if detected_sign is not None and detected_sign not in ALLOWED_SIGNS:
             detected_sign = None
 
+        if (
+            detected_sign is None
+            and self.pending_sign is not None
+            and (now - self.pending_last_seen_at) > self.cfg["SIGN_PENDING_TIMEOUT"]
+        ):
+            self._clear_pending()
+            return self._build_response(action="clear", override=False)
+
         if detected_sign is not None and detected_sign != self.pending_sign:
             self.pending_sign = detected_sign
             self.pending_started_at = now
+            self.pending_last_seen_at = now
             self.pending_confirmations = 1
             self.pending_ready = False
             return self._build_response(action=f"pending_{detected_sign}", override=False)
 
         if detected_sign is not None and detected_sign == self.pending_sign:
+            self.pending_last_seen_at = now
             self.pending_confirmations += 1
             if self.pending_confirmations >= self.cfg["SIGN_CONFIRM_FRAMES"]:
                 self.pending_ready = True
